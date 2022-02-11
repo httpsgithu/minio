@@ -34,7 +34,7 @@ require (
 	github.com/hashicorp/vault/api v1.0.4
 	github.com/jcmturner/gokrb5/v8 v8.4.2
 	github.com/json-iterator/go v1.1.10
-	github.com/klauspost/compress v1.11.12
+	github.com/klauspost/compress v1.13.4
 	github.com/klauspost/cpuid/v2 v2.0.4
 	github.com/klauspost/pgzip v1.2.5
 	github.com/klauspost/readahead v1.3.1
@@ -54,10 +54,9 @@ require (
 	github.com/minio/sio v0.2.1
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/montanaflynn/stats v0.5.0
-	github.com/nats-io/nats-server/v2 v2.1.9
+	github.com/nats-io/nats-server/v2 v2.7.2
 	github.com/nats-io/nats-streaming-server v0.21.1 // indirect
-	github.com/nats-io/nats.go v1.10.0
-	github.com/nats-io/nkeys v0.2.0 // indirect
+	github.com/nats-io/nats.go v1.13.1-0.20220121202836-972a071d373d
 	github.com/nats-io/stan.go v0.8.3
 	github.com/ncw/directio v1.0.5
 	github.com/nsqio/go-nsq v1.0.8
@@ -77,16 +76,15 @@ require (
 	github.com/tidwall/gjson v1.6.8
 	github.com/tidwall/sjson v1.0.4
 	github.com/tinylib/msgp v1.1.3
-	github.com/ttacon/chalk v0.0.0-20160626202418-22c06c80ed31 // indirect
 	github.com/valyala/tcplisten v0.0.0-20161114210144-ceec8f93295a
 	github.com/willf/bitset v1.1.11 // indirect
 	github.com/willf/bloom v2.0.3+incompatible
 	github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c
 	go.etcd.io/etcd v0.0.0-20201125193152-8a03d2e9614b
 	go.uber.org/zap v1.13.0
-	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83
-	golang.org/x/net v0.0.0-20201216054612-986b41b23924
-	golang.org/x/sys v0.0.0-20210225134936-a50acf3fe073
+	golang.org/x/crypto v0.0.0-20220112180741-5e0467b6c7ce
+	golang.org/x/net v0.0.0-20211112202133-69e39bad7dc2
+	golang.org/x/sys v0.0.0-20220111092808-5a964db01320
 	golang.org/x/tools v0.1.0 // indirect
 	google.golang.org/api v0.5.0
 	gopkg.in/yaml.v2 v2.3.0
