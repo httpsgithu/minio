@@ -77,17 +77,15 @@ require (
 	github.com/tidwall/gjson v1.6.8
 	github.com/tidwall/sjson v1.0.4
 	github.com/tinylib/msgp v1.1.3
-	github.com/ttacon/chalk v0.0.0-20160626202418-22c06c80ed31 // indirect
 	github.com/valyala/tcplisten v0.0.0-20161114210144-ceec8f93295a
 	github.com/willf/bitset v1.1.11 // indirect
 	github.com/willf/bloom v2.0.3+incompatible
 	github.com/xdg/scram v0.0.0-20180814205039-7eeb5667e42c
 	go.etcd.io/etcd v0.0.0-20201125193152-8a03d2e9614b
 	go.uber.org/zap v1.13.0
-	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83
-	golang.org/x/net v0.0.0-20201216054612-986b41b23924
-	golang.org/x/sys v0.0.0-20210225134936-a50acf3fe073
-	golang.org/x/tools v0.1.0 // indirect
+	golang.org/x/crypto v0.21.0
+	golang.org/x/net v0.23.0
+	golang.org/x/sys v0.18.0
 	google.golang.org/api v0.5.0
 	gopkg.in/yaml.v2 v2.3.0
 )
