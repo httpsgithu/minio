@@ -1,35 +1,37 @@
-/*
- * MinIO Cloud Storage, (C) 2015, 2016, 2017 MinIO, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright (c) 2015-2021 MinIO, Inc.
+//
+// This file is part of MinIO Object Storage stack
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/minio/minio/cmd/crypto"
-	xhttp "github.com/minio/minio/cmd/http"
-	"github.com/minio/minio/pkg/bucket/lifecycle"
+	"github.com/minio/minio-go/v7/pkg/tags"
+	"github.com/minio/minio/internal/crypto"
+	xhttp "github.com/minio/minio/internal/http"
+	xxml "github.com/minio/xxml"
 )
 
 // Returns a hexadecimal representation of time at the
@@ -48,11 +50,11 @@ func setEventStreamHeaders(w http.ResponseWriter) {
 // Write http common headers
 func setCommonHeaders(w http.ResponseWriter) {
 	// Set the "Server" http header.
-	w.Header().Set(xhttp.ServerInfo, "MinIO")
+	w.Header().Set(xhttp.ServerInfo, MinioStoreName)
 
 	// Set `x-amz-bucket-region` only if region is set on the server
 	// by default minio uses an empty region.
-	if region := globalServerRegion; region != "" {
+	if region := globalSite.Region(); region != "" {
 		w.Header().Set(xhttp.AmzBucketRegion, region)
 	}
 	w.Header().Set(xhttp.AcceptRanges, "bytes")
@@ -63,11 +65,31 @@ func setCommonHeaders(w http.ResponseWriter) {
 
 // Encodes the response headers into XML format.
 func encodeResponse(response interface{}) []byte {
-	var bytesBuffer bytes.Buffer
-	bytesBuffer.WriteString(xml.Header)
-	e := xml.NewEncoder(&bytesBuffer)
-	e.Encode(response)
-	return bytesBuffer.Bytes()
+	var buf bytes.Buffer
+	buf.WriteString(xml.Header)
+	if err := xml.NewEncoder(&buf).Encode(response); err != nil {
+		bugLogIf(GlobalContext, err)
+		return nil
+	}
+	return buf.Bytes()
+}
+
+// Use this encodeResponseList() to support control characters
+// this function must be used by only ListObjects() for objects
+// with control characters, this is a specialized extension
+// to support AWS S3 compatible behavior.
+//
+// Do not use this function for anything other than ListObjects()
+// variants, please open a github discussion if you wish to use
+// this in other places.
+func encodeResponseList(response interface{}) []byte {
+	var buf bytes.Buffer
+	buf.WriteString(xxml.Header)
+	if err := xxml.NewEncoder(&buf).Encode(response); err != nil {
+		bugLogIf(GlobalContext, err)
+		return nil
+	}
+	return buf.Bytes()
 }
 
 // Encodes the response headers into JSON format.
@@ -86,7 +108,7 @@ func setPartsCountHeaders(w http.ResponseWriter, objInfo ObjectInfo) {
 }
 
 // Write object header
-func setObjectHeaders(w http.ResponseWriter, objInfo ObjectInfo, rs *HTTPRangeSpec, opts ObjectOptions) (err error) {
+func setObjectHeaders(ctx context.Context, w http.ResponseWriter, objInfo ObjectInfo, rs *HTTPRangeSpec, opts ObjectOptions) (err error) {
 	// set common headers
 	setCommonHeaders(w)
 
@@ -111,22 +133,26 @@ func setObjectHeaders(w http.ResponseWriter, objInfo ObjectInfo, rs *HTTPRangeSp
 		w.Header().Set(xhttp.Expires, objInfo.Expires.UTC().Format(http.TimeFormat))
 	}
 
-	if globalCacheConfig.Enabled {
-		w.Header().Set(xhttp.XCache, objInfo.CacheStatus.String())
-		w.Header().Set(xhttp.XCacheLookup, objInfo.CacheLookupStatus.String())
-	}
-
 	// Set tag count if object has tags
 	if len(objInfo.UserTags) > 0 {
-		tags, _ := url.ParseQuery(objInfo.UserTags)
-		if len(tags) > 0 {
-			w.Header()[xhttp.AmzTagCount] = []string{strconv.Itoa(len(tags))}
+		tags, _ := tags.ParseObjectTags(objInfo.UserTags)
+		if tags != nil && tags.Count() > 0 {
+			w.Header()[xhttp.AmzTagCount] = []string{strconv.Itoa(tags.Count())}
+			if opts.Tagging {
+				// This is MinIO only extension to return back tags along with the count.
+				w.Header()[xhttp.AmzObjectTagging] = []string{objInfo.UserTags}
+			}
 		}
 	}
 
 	// Set all other user defined metadata.
 	for k, v := range objInfo.UserDefined {
-		if strings.HasPrefix(strings.ToLower(k), ReservedMetadataPrefixLower) {
+		// Empty values for object lock and retention can be skipped.
+		if v == "" && equals(k, xhttp.AmzObjectLockMode, xhttp.AmzObjectLockRetainUntilDate) {
+			continue
+		}
+
+		if stringsHasPrefixFold(k, ReservedMetadataPrefixLower) {
 			// Do not need to send any internal metadata
 			// values to client.
 			continue
@@ -139,7 +165,7 @@ func setObjectHeaders(w http.ResponseWriter, objInfo ObjectInfo, rs *HTTPRangeSp
 
 		var isSet bool
 		for _, userMetadataPrefix := range userMetadataKeyPrefixes {
-			if !strings.HasPrefix(strings.ToLower(k), strings.ToLower(userMetadataPrefix)) {
+			if !stringsHasPrefixFold(k, userMetadataPrefix) {
 				continue
 			}
 			w.Header()[strings.ToLower(k)] = []string{v}
@@ -176,7 +202,7 @@ func setObjectHeaders(w http.ResponseWriter, objInfo ObjectInfo, rs *HTTPRangeSp
 	}
 
 	// Set the relevant version ID as part of the response header.
-	if objInfo.VersionID != "" {
+	if objInfo.VersionID != "" && objInfo.VersionID != nullVersionID {
 		w.Header()[xhttp.AmzVersionID] = []string{objInfo.VersionID}
 	}
 
@@ -184,25 +210,21 @@ func setObjectHeaders(w http.ResponseWriter, objInfo ObjectInfo, rs *HTTPRangeSp
 		w.Header()[xhttp.AmzBucketReplicationStatus] = []string{objInfo.ReplicationStatus.String()}
 	}
 
+	if objInfo.IsRemote() {
+		// Check if object is being restored. For more information on x-amz-restore header see
+		// https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html#API_HeadObject_ResponseSyntax
+		w.Header()[xhttp.AmzStorageClass] = []string{filterStorageClass(ctx, objInfo.TransitionedObject.Tier)}
+	}
+
 	if lc, err := globalLifecycleSys.Get(objInfo.Bucket); err == nil {
-		if opts.VersionID == "" {
-			if ruleID, expiryTime := lc.PredictExpiryTime(lifecycle.ObjectOpts{
-				Name:             objInfo.Name,
-				UserTags:         objInfo.UserTags,
-				VersionID:        objInfo.VersionID,
-				ModTime:          objInfo.ModTime,
-				IsLatest:         objInfo.IsLatest,
-				DeleteMarker:     objInfo.DeleteMarker,
-				SuccessorModTime: objInfo.SuccessorModTime,
-			}); !expiryTime.IsZero() {
-				w.Header()[xhttp.AmzExpiration] = []string{
-					fmt.Sprintf(`expiry-date="%s", rule-id="%s"`, expiryTime.Format(http.TimeFormat), ruleID),
-				}
-			}
+		lc.SetPredictionHeaders(w, objInfo.ToLifecycleOpts())
+	}
+
+	if v, ok := objInfo.UserDefined[ReservedMetadataPrefix+"compression"]; ok {
+		if i := strings.LastIndexByte(v, '/'); i >= 0 {
+			v = v[i+1:]
 		}
-		if objInfo.TransitionStatus == lifecycle.TransitionComplete {
-			w.Header()[xhttp.AmzStorageClass] = []string{objInfo.StorageClass}
-		}
+		w.Header()[xhttp.MinIOCompressed] = []string{v}
 	}
 
 	return nil
